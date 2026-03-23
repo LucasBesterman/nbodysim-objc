@@ -1,2 +1,2 @@
-# nbodysim-metal
-Direct N-body gravity simulation utilizing Metal GPU parallelization.
+# nbodysim-objc
+Direct N-body gravity simulation with GPU parallel processing.
