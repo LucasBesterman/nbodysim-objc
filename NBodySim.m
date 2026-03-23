@@ -268,14 +268,6 @@
 
         [cenc dispatchThreadgroups:numGroups threadsPerThreadgroup:groupSize];
         [cenc endEncoding];
-
-        // Particle *particles = (Particle *)particleBuffer.contents;
-        // simd_float3 momentum = (simd_float3){0,0,0};
-
-        // for (int i=0;i<numParticles;++i) {
-        //     momentum += particles[i].vel * particles[i].mass;
-        // }
-        // std::cout << "P: " << momentum[0] << "\n";
     }
 
     // --- Render pass ---
