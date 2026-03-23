@@ -1,11 +1,24 @@
 #import <MetalKit/MetalKit.h>
 #import <simd/simd.h>
 #import "Structs.m"
-#import "MatrixHelpers.m"
+#import "MatrixUtils.m"
+#include <iostream>
+#define PI 3.1415927
 
 @interface NBodySim : NSObject <MTKViewDelegate>
 {
 @public
+    // Sim parameters
+    bool doSimStep;
+    NSUInteger threadgroupSize;
+    int numParticles;
+    double Z_init, deltaTime, radius, softening;
+    double G, H0, Omega_m, Omega_lambda;
+    double m_0, t_0, r_0;
+    double sim_m, sim_r, sim_dt, sim_ep2, sim_a, sim_H;
+    ComputeParams params;
+
+    // Compute variables
     id<MTLDevice> device;
     id<MTLCommandQueue> commandQueue;
     id<MTLComputePipelineState> computePipelineState;
@@ -14,23 +27,10 @@
     id<MTLBuffer> particleBufferNext;
     id<MTLBuffer> uniformBuffer;
 
-    // Whether to do a simulation step
-    BOOL doSimStep;
-
-    // Simulation parameters
-    int threadgroup_size;
-    float particle_display_size;
-    float initial_radius;
-    ComputeParams simParams;
-
-    // Camera state variables
-    float camYaw;
-    float camPitch;
-    float camRadius;
-
+    // Camera state
+    float displaySize;
+    float camYaw, camPitch, camDist;
     simd_float3 eye;
-
-    // Matrices
     simd_float4x4 viewMatrix;
     simd_float4x4 projectionMatrix;
     simd_float4x4 mvp;
@@ -51,39 +51,51 @@
     self = [super init];
     if (!self) return nil;
 
-    // Simulation is active by default
+    // Sim parameters
+    threadgroupSize = 250;
+    numParticles = 20000;
+    Z_init = 30.0;
+    deltaTime = 3.154e14;  // s (=10 My)
+    radius = 3.086e24;     // cm (=1 Mpc)
+    softening = 0.4;
+
+    // Constants
+    G = 6.674e-8;    // dyne cm^2 / g^2
+    H0 = 2.268e-18;  // s^-1
+    Omega_m = 0.3;
+    Omega_lambda = 1.0 - Omega_m;  // flat universe
+
+    // Code units
+    m_0 = 1.989e40;  // g (=10^7 SM)
+    r_0 = 3.086e24;  // cm (=1 Mpc)
+    t_0 = r_0 * sqrt(r_0 / (G * m_0));  // s
+
+    // Particle display size
+    displaySize = 35.0f;
+
+    if (![self initBuffers: view]) return nil;
+    [self initSimState];
+    [self initParticles];
+    [self initCamera];
+
     doSimStep = true;
 
-    // Initialize simulation parameters
-    threadgroup_size = 250;
-    particle_display_size = 25.0f;
-    initial_radius = 1.5f;
+    return self;
+}
 
-    simParams.numParticles = 20000;
-    simParams.deltaTime = 0.1f;
-    simParams.G = 0.000001f;
-    simParams.epsilonSq = 0.005f;
-    simParams.expansionFactor = 0.0f;
-
-    // Initialize camera state
-    camYaw = 0.0f;
-    camPitch = 0.3f;
-    camRadius = 4.0f;
-
-    [self updateEye];
-
+// Initialize buffers
+- (bool)initBuffers:(MTKView *)view {
     device = view.device;
     commandQueue = [device newCommandQueue];
-
     NSError *err = nil;
-
+    
     // Load metal shader library from disk
     NSURL *libURL = [NSURL fileURLWithPath:@"Shaders.metallib"];
 
     id<MTLLibrary> lib = [device newLibraryWithURL:libURL error:&err];
     if (!lib) {
         NSLog(@"Failed to load metallib: %@", err);
-        return nil;
+        return false;
     }
 
     // Create compute pipeline state
@@ -92,7 +104,7 @@
     computePipelineState = [device newComputePipelineStateWithFunction:cfn error:&err];
     if (!computePipelineState) {
         NSLog(@"Failed to create compute pipeline state: %@", err);
-        return nil;
+        return false;
     }
 
     // Create render pipeline state
@@ -108,28 +120,54 @@
     MTLRenderPipelineColorAttachmentDescriptor *colorAttachment = pdesc.colorAttachments[0];
     colorAttachment.blendingEnabled = YES;
     colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
-    colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
+    // colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.sourceRGBBlendFactor = MTLBlendFactorOne;
     colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOne;
 
     renderPipelineState = [device newRenderPipelineStateWithDescriptor:pdesc error:&err];
     if (!renderPipelineState) {
         NSLog(@"Failed to create render pipeline state: %@", err);
-        return nil;
+        return false;
     }
 
-    // Initialize buffers
-    particleBuffer = [device newBufferWithLength:sizeof(Particle) * simParams.numParticles
+    // Create buffers
+    particleBuffer = [device newBufferWithLength:sizeof(Particle) * numParticles
                                          options:MTLResourceStorageModeShared];
-    
-    particleBufferNext = [device newBufferWithLength:sizeof(Particle) * simParams.numParticles
+    particleBufferNext = [device newBufferWithLength:sizeof(Particle) * numParticles
                                              options:MTLResourceStorageModeShared];
-    
     uniformBuffer = [device newBufferWithLength:sizeof(Uniforms)
                                         options:MTLResourceStorageModeShared];
+    return true;
+}
 
-    [self initParticles];
+// Initialize simulation state
+- (void)initSimState {
+    double rho_crit = 3 * H0 * H0 / (8 * PI * G);
+    double volume = 4/3.0 * PI * radius * radius * radius;
+    double volumePerParticle = volume / numParticles;
+    double massPerParticle = rho_crit * volumePerParticle;
+    double epsilon2 = cbrt(volumePerParticle) * softening;
+    
+    // Code variables
+    sim_m = massPerParticle / m_0;
+    sim_r = radius / r_0;
+    sim_dt = deltaTime / t_0;
+    sim_ep2 = epsilon2 / r_0;
 
-    return self;
+    // Cosmology variables
+    sim_a = 1.0 / (1 + Z_init);
+    
+    double inv3 = 1.0 / (sim_a * sim_a * sim_a);
+    sim_H = H0 * sqrt(Omega_m * inv3 + Omega_lambda) * t_0;
+
+    params.N = numParticles;
+    params.dt = sim_dt;
+    params.ep2 = sim_ep2;
+    params.H = sim_H;
+    params.a_inv3 = inv3;
+
+    // std::cout << "r:" << sim_r << " dt:" << sim_dt <<
+    //              " m:" << sim_m << " ep2:" << sim_ep2 << "\n";
 }
 
 // Initialize particles
@@ -137,11 +175,9 @@
     Particle *particles = (Particle *)particleBuffer.contents;
     Particle *particlesNext = (Particle *)particleBufferNext.contents;
 
-    float totalMass = 0.0f;
-
-    for (int i=0;i<simParams.numParticles;++i) {
-        // random in sphere radius r
-        float r = cbrtf((float)rand() / RAND_MAX) * initial_radius;
+    for (int i=0;i<numParticles;++i) {
+        // Uniform sphere
+        float r = cbrtf((float)rand() / RAND_MAX) * sim_r;
         float theta = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
         float phi = acosf(2.0f * ((float)rand() / RAND_MAX) - 1.0f);
         float x = r * sinf(phi) * cosf(theta);
@@ -150,27 +186,27 @@
 
         particles[i].pos = (simd_float3){x,y,z};
         particles[i].vel = (simd_float3){0,0,0};
-        particles[i].color = (simd_float3){ (float)rand()/RAND_MAX, (float)rand()/RAND_MAX, (float)rand()/RAND_MAX };
-        
-        float mass = 1.0f;
-        particles[i].mass = mass;
-        totalMass += mass;
-
+        particles[i].mass = sim_m;
+        particles[i].color = (simd_float3) { 1.0, 1.0, 1.0 };
         particlesNext[i] = particles[i];
     }
+}
 
-    float invRadius3 = 1.0 / (initial_radius * initial_radius * initial_radius);
-    simParams.expansionFactor = simParams.G * totalMass * invRadius3;
+// Initialize camera state
+- (void)initCamera {
+    camYaw = 0.0f;
+    camPitch = 0.3f;
+    camDist = 4.0f;
+    [self updateEye];
 }
 
 // Update eye vector and rebuild view matrix
 - (void)updateEye {
-    float cx = camRadius * cosf(camPitch) * sinf(camYaw);
-    float cy = camRadius * sinf(camPitch);
-    float cz = camRadius * cosf(camPitch) * cosf(camYaw);
+    float cx = camDist * cosf(camPitch) * sinf(camYaw);
+    float cy = camDist * sinf(camPitch);
+    float cz = camDist * cosf(camPitch) * cosf(camYaw);
 
     eye = { cx, cy, cz };
-
     simd_float3 center = { 0, 0, 0 };
     simd_float3 up = { 0, 1, 0 };
     viewMatrix = getViewMatrix(eye, center, up);
@@ -196,12 +232,21 @@
     Uniforms u;
     u.mvp = mvp;
     u.eye = eye;
-    u.particleDisplaySize = particle_display_size;
+    u.vertSize = displaySize;
     memcpy(uniformBuffer.contents, &u, sizeof(Uniforms));
 
     id<MTLCommandBuffer> cmd = [commandQueue commandBuffer];
 
     if (doSimStep) {
+        // Update cosmology variables
+        sim_a += sim_H * sim_a * sim_dt;
+
+        double inv3 = 1.0 / (sim_a * sim_a * sim_a);
+        sim_H = H0 * sqrt(Omega_m * inv3 + Omega_lambda) * t_0;
+
+        params.H = sim_H;
+        params.a_inv3 = inv3;
+        
         // --- Compute pass ---
         
         // Swap buffers
@@ -209,8 +254,7 @@
         particleBuffer = particleBufferNext;
         particleBufferNext = tmp;
         
-        NSUInteger threadgroupSize = threadgroup_size;
-        NSUInteger numThreadgroups = simParams.numParticles / threadgroupSize;
+        NSUInteger numThreadgroups = numParticles / threadgroupSize;
 
         MTLSize groupSize = MTLSizeMake(threadgroupSize, 1, 1);
         MTLSize numGroups = MTLSizeMake(numThreadgroups, 1, 1);
@@ -220,10 +264,18 @@
         [cenc setComputePipelineState:computePipelineState];
         [cenc setBuffer:particleBuffer offset:0 atIndex:0];
         [cenc setBuffer:particleBufferNext offset:0 atIndex:1];
-        [cenc setBytes:&simParams length:sizeof(ComputeParams) atIndex:2];
+        [cenc setBytes:&params length:sizeof(ComputeParams) atIndex:2];
 
         [cenc dispatchThreadgroups:numGroups threadsPerThreadgroup:groupSize];
         [cenc endEncoding];
+
+        // Particle *particles = (Particle *)particleBuffer.contents;
+        // simd_float3 momentum = (simd_float3){0,0,0};
+
+        // for (int i=0;i<numParticles;++i) {
+        //     momentum += particles[i].vel * particles[i].mass;
+        // }
+        // std::cout << "P: " << momentum[0] << "\n";
     }
 
     // --- Render pass ---
@@ -235,7 +287,7 @@
     [renc setRenderPipelineState:renderPipelineState];
     [renc setVertexBuffer:particleBuffer offset:0 atIndex:0];
     [renc setVertexBuffer:uniformBuffer offset:0 atIndex:1];
-    [renc drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:simParams.numParticles];
+    [renc drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:numParticles];
     [renc endEncoding];
 
     [cmd presentDrawable:view.currentDrawable];

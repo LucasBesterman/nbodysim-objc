@@ -1,5 +1,8 @@
 #import <MetalKit/MetalKit.h>
 #import "NBodySim.m"
+#include <iostream>
+#include <chrono>
+#include <thread>
 
 @class NBodySim;
 
@@ -60,23 +63,30 @@
 // Scroll wheel: zoom in/out
 - (void)scrollWheel:(NSEvent *)event {
     float zoomSpeed = 0.001f;
-    self.sim->camRadius *= 1 - event.scrollingDeltaY * zoomSpeed;
+    self.sim->camDist *= 1 - event.scrollingDeltaY * zoomSpeed;
 
-    if (self.sim->camRadius < 0.01f) self.sim->camRadius = 0.01f;
-    if (self.sim->camRadius > 100.0f) self.sim->camRadius = 100.0f;
+    if (self.sim->camDist < 0.01f) self.sim->camDist = 0.01f;
+    if (self.sim->camDist > 100.0f) self.sim->camDist = 100.0f;
 
     [self.sim updateEye];
 }
 
 // Key pressed: toggle simulation (space) and reset ('r')
 - (void)keyDown:(NSEvent *)event {
-    if (event.keyCode == 49) {
-        [self.sim toggleSim]; // Space key: toggle simulation
-        return;
-    }
-    if (event.keyCode == 15) {
-        [self.sim initParticles]; // 'r': reset simulation
-        return;
+    if (event.keyCode == 49) { // space
+        [self.sim toggleSim];
+    } else if (event.keyCode == 15) { // 'r'
+        bool active = self.sim->doSimStep;
+
+        if (active) {
+            [self.sim toggleSim];
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        [self.sim initSimState];
+        [self.sim initParticles];
+        
+        if (active) [self.sim toggleSim];
     }
 
     [super keyDown:event];
