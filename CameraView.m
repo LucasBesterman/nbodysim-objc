@@ -71,11 +71,11 @@
     [self.sim updateEye];
 }
 
-// Key pressed: toggle simulation (space) and reset ('r')
+// Key pressed: toggle simulation (space) and reset (r)
 - (void)keyDown:(NSEvent *)event {
     if (event.keyCode == 49) { // space
         [self.sim toggleSim];
-    } else if (event.keyCode == 15) { // 'r'
+    } else if (event.keyCode == 15) { // r
         bool active = self.sim->doSimStep;
 
         if (active) {

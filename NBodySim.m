@@ -57,7 +57,7 @@
     Z_init = 30.0;
     deltaTime = 3.154e14;  // s (=10 My)
     radius = 3.086e24;     // cm (=1 Mpc)
-    softening = 0.4;
+    softening = 0.07;
 
     // Constants
     G = 6.674e-8;    // dyne cm^2 / g^2
@@ -78,7 +78,7 @@
     [self initParticles];
     [self initCamera];
 
-    doSimStep = true;
+    doSimStep = false;
 
     return self;
 }
@@ -120,7 +120,6 @@
     MTLRenderPipelineColorAttachmentDescriptor *colorAttachment = pdesc.colorAttachments[0];
     colorAttachment.blendingEnabled = YES;
     colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
-    // colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
     colorAttachment.sourceRGBBlendFactor = MTLBlendFactorOne;
     colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOne;
 
@@ -165,9 +164,6 @@
     params.ep2 = sim_ep2;
     params.H = sim_H;
     params.a_inv3 = inv3;
-
-    // std::cout << "r:" << sim_r << " dt:" << sim_dt <<
-    //              " m:" << sim_m << " ep2:" << sim_ep2 << "\n";
 }
 
 // Initialize particles
@@ -246,7 +242,7 @@
 
         params.H = sim_H;
         params.a_inv3 = inv3;
-        
+
         // --- Compute pass ---
         
         // Swap buffers
@@ -268,6 +264,14 @@
 
         [cenc dispatchThreadgroups:numGroups threadsPerThreadgroup:groupSize];
         [cenc endEncoding];
+
+        // Particle *particles = (Particle *)particleBuffer.contents;
+        // simd_float3 momentum = (simd_float3){0,0,0};
+
+        // for (int i=0;i<numParticles;++i) {
+        //     momentum += particles[i].vel * particles[i].mass;
+        // }
+        // std::cout << "P: " << momentum[0] << "\n";
     }
 
     // --- Render pass ---

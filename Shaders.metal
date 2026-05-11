@@ -44,7 +44,7 @@ kernel void nbody_kernel(device Particle *particles [[buffer(0)]],
     }
 
     acc = acc * params.a_inv3 - 2 * params.H * p.vel;
-
+    
     float3 vel_half = p.vel + acc * params.dt * 0.5f;  // Kick
     float3 pos_next = p.pos + vel_half * params.dt;  // Drift
     float3 vel_next = vel_half + acc * params.dt / 2; // Kick
