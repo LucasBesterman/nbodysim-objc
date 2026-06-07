@@ -78,7 +78,11 @@
     if (keyCode == 49) { // space
         [self.sim toggleSim];
     } else if (keyCode == 15) { // r
-        if (self.sim->doSimStep) [self.sim toggleSim];
+        if (self.sim->doSimStep) {
+            [self.sim toggleSim];
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
         [self.sim initSimState];
         [self.sim initParticles];
     } else if (keyCode == 35) { // p
