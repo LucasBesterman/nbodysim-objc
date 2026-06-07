@@ -22,10 +22,10 @@ static inline simd_float4x4 getViewMatrix(simd_float3 eye,
 }
 
 // Right-handed perspective projection matrix
-static inline simd_float4x4 getProjectionMatrix(float fovyRadians,
-                                                float aspect,
-                                                float nearZ,
-                                                float farZ)
+static inline simd_float4x4 getProjMatrix(float fovyRadians,
+                                          float aspect,
+                                          float nearZ,
+                                          float farZ)
 {
     float yScale = 1.0f / tanf(fovyRadians * 0.5f);
     float xScale = yScale / aspect;

@@ -1,17 +1,24 @@
 #import <Metal/Metal.h>
 #import "NBodySim.m"
 #import "CameraView.m"
+#include <iostream>
+#include <string>
+#include <map>
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
 
 @implementation AppDelegate
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
-    return YES; // Quit automatically when the window is closed
+    return YES;
 }
 @end
 
-int main(int argc, const char * argv[]) {
+int main(int argc, const char* argv[]) {
+    std::map<std::string, std::string> argMap;
+    for (int i=1; i<argc-1; i+=2)
+        argMap[argv[i]] = argv[i+1];
+
     @autoreleasepool {
         [NSApplication sharedApplication];
 
@@ -40,12 +47,13 @@ int main(int argc, const char * argv[]) {
         cv.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [window.contentView addSubview:cv];
 
-        NBodySim *sim = [[NBodySim alloc] initWithView:cv];
+        NBodySim *sim = [[NBodySim alloc] initWithView:cv parameters:argMap];
         cv.sim = sim;
         cv.delegate = sim;
 
         [NSApp activateIgnoringOtherApps:YES];
         [NSApp run];
     }
+
     return 0;
 }

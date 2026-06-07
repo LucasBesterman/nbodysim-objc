@@ -60,7 +60,7 @@
     self.isDragging = NO;
 }
 
-// Scroll wheel: zoom in/out
+// Scroll wheel: zoom
 - (void)scrollWheel:(NSEvent *)event {
     float zoomSpeed = 0.001f;
     self.sim->camDist *= 1 - event.scrollingDeltaY * zoomSpeed;
@@ -71,22 +71,18 @@
     [self.sim updateEye];
 }
 
-// Key pressed: toggle simulation (space) and reset (r)
+// Key pressed: toggle sim, reset, print
 - (void)keyDown:(NSEvent *)event {
-    if (event.keyCode == 49) { // space
+    int keyCode = event.keyCode;
+
+    if (keyCode == 49) { // space
         [self.sim toggleSim];
-    } else if (event.keyCode == 15) { // r
-        bool active = self.sim->doSimStep;
-
-        if (active) {
-            [self.sim toggleSim];
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
-
+    } else if (keyCode == 15) { // r
+        if (self.sim->doSimStep) [self.sim toggleSim];
         [self.sim initSimState];
         [self.sim initParticles];
-        
-        if (active) [self.sim toggleSim];
+    } else if (keyCode == 35) { // p
+        [self.sim printSimState];
     }
 
     [super keyDown:event];
