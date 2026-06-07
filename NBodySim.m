@@ -124,7 +124,7 @@
         sim_a = a_next;
         
         // --- Compute pass ---
-        int numThreadgroups = numParticles / threadgroupSize; //NSUInteger
+        int numThreadgroups = numParticles / threadgroupSize;
 
         MTLSize groupSize = MTLSizeMake(threadgroupSize, 1, 1);
         MTLSize numGroups = MTLSizeMake(numThreadgroups, 1, 1);
