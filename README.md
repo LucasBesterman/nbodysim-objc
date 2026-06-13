@@ -1,5 +1,5 @@
 # nbodysim-objc
-Real-time cosmology simulation for Apple GPUs.
+Real-time cosmology simulation for Apple Silicon.
 
 ## Features
 - ΛCDM cosmology with comoving coordinates
